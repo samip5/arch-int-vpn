@@ -98,6 +98,11 @@ echo "--------------------"
 ip route s t all
 echo "--------------------"
 
+echo "[info] ip -6 route defined as follows..."
+echo "--------------------"
+ip -6 route s t all
+echo "--------------------"
+
 # iptables marks
 ###
 
@@ -134,22 +139,29 @@ fi
 iptables -P INPUT DROP
 
 # set policy to drop ipv6 for input
-ip6tables -P INPUT DROP 1>&- 2>&-
+ip6tables -P INPUT DROP
 
 # accept input to/from docker containers (172.x range is internal dhcp)
 iptables -A INPUT -s "${docker_network_cidr}" -d "${docker_network_cidr}" -j ACCEPT
 
 for vpn_remote_ip_item in "${vpn_remote_ip_array[@]}"; do
+  if [[ "${DEBUG}" == "true" ]]; then
+    echo "[debug] current VPN remote IP item is: ${vpn_remote_ip_item}"
+  fi
 
 	# note grep -e is required to indicate no flags follow to prevent -A from being incorrectly picked up
 	rule_exists=$(iptables -S | grep -e "-A INPUT -i "${docker_interface}" -s "${vpn_remote_ip_item}" -j ACCEPT")
+	rule_exists_v6=$(ip6tables -S | grep -e "-A INPUT -i "${docker_interface}" -s "${vpn_remote_ip_item}" -j ACCEPT")
 
 	if [[ -z "${rule_exists}" ]]; then
-
 		# return rule
 		iptables -A INPUT -i "${docker_interface}" -s "${vpn_remote_ip_item}" -j ACCEPT
-
 	fi
+
+	if [[ -z "${rule_exists_v6}" ]]; then
+  	# return rule
+  	ip6tables -A INPUT -i "${docker_interface}" -s "${vpn_remote_ip_item}" -j ACCEPT
+  fi
 
 done
 
@@ -159,6 +171,8 @@ for incoming_ports_ext_item in "${incoming_ports_ext_array[@]}"; do
 
 		# allows communication from any ip (ext or lan) to containers running in vpn network on specific ports
 		iptables -A INPUT -i "${docker_interface}" -p "${vpn_remote_protocol_item}" --dport "${incoming_ports_ext_item}" -j ACCEPT
+		# Allow communication from any IPv6 address (ext or lan) to containers runnin in vpn network on specifc ports
+		ip6tables -A INPUT -i "${docker_interface}" -p "${vpn_remote_protocol_item}" --dport "${incoming_ports_ext_item}" -j ACCEPT
 
 	done
 
@@ -188,12 +202,16 @@ done
 
 # accept input icmp (ping)
 iptables -A INPUT -p icmp --icmp-type echo-reply -j ACCEPT
+# accept input icmp
+ip6tables -A INPUT -p icmp -j ACCEPT
 
 # accept input to local loopback
 iptables -A INPUT -i lo -j ACCEPT
+ip6tables -A INPUT -i lo -j ACCEPT
 
 # accept input to tunnel adapter
-iptables -A INPUT -i "${VPN_DEVICE_TYPE}" -j ACCEPT
+iptables -A INPUT -i "${VPN_DEVICE_YPE}" -j ACCEPT
+ip6tables -A INPUT -i "${VPN_DEVICE_YPE}" -j ACCEPT
 
 # forward iptable rules
 ###
@@ -202,7 +220,7 @@ iptables -A INPUT -i "${VPN_DEVICE_TYPE}" -j ACCEPT
 iptables -P FORWARD DROP
 
 # set policy to drop ipv6 for forward
-ip6tables -P FORWARD DROP 1>&- 2>&-
+ip6tables -P FORWARD DROP
 
 # output iptable rules
 ###
@@ -211,7 +229,7 @@ ip6tables -P FORWARD DROP 1>&- 2>&-
 iptables -P OUTPUT DROP
 
 # set policy to drop ipv6 for output
-ip6tables -P OUTPUT DROP 1>&- 2>&-
+ip6tables -P OUTPUT DROP
 
 # accept output to/from docker containers (172.x range is internal dhcp)
 iptables -A OUTPUT -s "${docker_network_cidr}" -d "${docker_network_cidr}" -j ACCEPT
@@ -281,15 +299,24 @@ done
 
 # accept output for icmp (ping)
 iptables -A OUTPUT -p icmp --icmp-type echo-request -j ACCEPT
+ip6tables -A OUTPUT -p icmp -j ACCEPT
 
 # accept output from local loopback adapter
 iptables -A OUTPUT -o lo -j ACCEPT
+ip6tables -A OUTPUT -o lo -j ACCEPT
 
 # accept output from tunnel adapter
 iptables -A OUTPUT -o "${VPN_DEVICE_TYPE}" -j ACCEPT
+ip6tables -A OUTPUT -o "${VPN_DEVICE_TYPE}" -j ACCEPT
 
 echo "[info] iptables defined as follows..."
 echo "--------------------"
 iptables -S 2>&1 | tee /tmp/getiptables
 chmod +r /tmp/getiptables
+echo "--------------------"
+
+echo "[info] ip6tables defined as follows..."
+echo "--------------------"
+ip6tables -S 2>&1 | tee /tmp/getip6tables
+chmod +r /tmp/getip6tables
 echo "--------------------"
